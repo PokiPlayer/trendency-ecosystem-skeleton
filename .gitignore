@@ -1,56 +1,18 @@
-/build/*
-!/build/.gitignore
-/data/*
-!/data/.gitignore
-public/compiled
-.php_cs.cache
 /.idea/
-.DS_Store
-/c3.php
-public/variant
-/public/js/*
-!/public/js/.gitignore
-/public/media/*
-/public/leaflet*
-!/public/media/.gitignore
+docker/database/data/*
+docker/rabbitmq/data/*
+docker/redis/data/*
+ecosystem/application/backend/vendor/*
+ecosystem/application/backend/public/build/
+ecosystem/application/backend/var/*
+ecosystem/application/client/.angular/*
+ecosystem/application/client/node_modules/
+ecosystem/application/log/*
 
-###> symfony/framework-bundle ###
-/.env.local
-/.env.local.php
-/.env.*.local
-/.env.dev
-/public/bundles/
-/var/
-/vendor/
-###< symfony/framework-bundle ###
-
-###> symfony/phpunit-bridge ###
-.phpunit
-/phpunit.xml
-###< symfony/phpunit-bridge ###
-
-###> symfony/web-server-bundle ###
-/.web-server-pid
-###< symfony/web-server-bundle ###
-
-###> phpunit/phpunit ###
-/phpunit.xml
-.phpunit.result.cache
-###< phpunit/phpunit ###
-
-###> symfony/webpack-encore-bundle ###
-/node_modules/
-/public/build/
-/public/js/
-npm-debug.log
-yarn-error.log
-###< symfony/webpack-encore-bundle ###
-
-###> liip/imagine-bundle ###
-/public/media/cache/
-###< liip/imagine-bundle ###
-
-###> friendsofphp/php-cs-fixer ###
-/.php_cs
-/.php_cs.cache
-###< friendsofphp/php-cs-fixer ###
+ecosystem/cms/backend/vendor/*
+ecosystem/cms/backend/public/build/
+ecosystem/cms/backend/public/media/
+ecosystem/cms/backend/var/*
+ecosystem/cms/client/.angular/*
+ecosystem/cms/client/node_modules/
+ecosystem/cms/log/*
