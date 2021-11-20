@@ -1,0 +1,21 @@
+api:
+  dashboard: true
+
+log:
+  level: DEBUG
+  filePath: "/var/log/traefik/treafik.log"
+
+accessLog:
+  filePath: "/var/log/traefik/treafik-access.log"
+  bufferingSize: 100
+
+entryPoints:
+  http:
+    address: ":80"
+  https:
+    address: ":443"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false

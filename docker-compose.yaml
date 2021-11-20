@@ -1,0 +1,376 @@
+version: '3.9'
+
+volumes:
+  database-data:
+    driver: local
+  redis-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+
+networks:
+  proxy:
+    external: true
+    name:     proxy
+  internal:
+    name: internal
+
+services:
+
+  traefik:
+    image:          traefik:latest
+    container_name: "traefik"
+    hostname:       "traefik"
+    ports:
+      - "8080:8080"
+      - "80:80"
+    volumes:
+      - ./docker/traefik/traefik.yaml:/etc/traefik/traefik.yml:ro
+      - ./traefik-log:/var/log/traefik:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - proxy
+
+  ################################################################################
+  # Application stack
+  ################################################################################
+  application_backend:
+    container_name: application_backend
+    build:
+      context:    ./docker/php
+      dockerfile: Dockerfile
+      target:     base-php
+      args:
+        - php_version=${PHP_VERSION}
+        - project_name=${PROJECT_NAME}
+        - current_service=${APPLICATION_SERVICE_NAME}
+        - app_env=${APP_ENV}
+        - env=${ENV}
+        - xdebug_enable=${XDEBUG_ENABLE}
+        - uid=${UID}
+        - gid=${GID}
+        - uname=${UNAME}
+        - db_user=${MYSQL_USER}
+        - db_password=${MYSQL_PASSWORD}
+        - db_name=${MYSQL_DATABASE}
+        - db_host=${MYSQL_HOST}
+        - db_dsn=${DATABASE_URL}
+        - redis_chema=${REDIS_SCHEMA}
+        - redis_host=${REDIS_HOST}
+        - redis_port=${REDIS_PORT}
+        - redis_passwrod=${REDIS_PASSWORD}
+        - redis_database=${REDIS_DATABASE}
+        - redis_dsn=${REDIS_DSN}
+        - rabbitmq_host=${RABBITMQ_HOST}
+        - rabbitmq_port=${RABBITMQ_PORT}
+        - rabbitmq_password=${RABBITMQ_PASSWORD}
+        - rabbitmq_user=${RABBITMQ_USER}
+        - mailer_dsn=${MAILER_DSN}
+    env_file:
+      - ./.env
+    volumes:
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/backend:/app:rw
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/log:/app/var/log:rw
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/oam/php/conf.d/app.ini:/usr/local/etc/php/conf.d/app.ini
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/oam/php/pool.d/app.fpm.conf:/usr/local/etc/php-fpm.d/zz-pm.conf
+    restart:        always
+    depends_on:
+      - database
+      - redis
+      - rabbitmq
+    networks:
+      - internal
+
+  application_webserver:
+    container_name: application_webserver
+    build:
+      context:    ./docker/nginx
+      dockerfile: Dockerfile
+      args:
+        - current_service=${APPLICATION_SERVICE_NAME}
+        - env=${ENV}
+        - openresty_version=${OPENRESTY_VERSION}
+        - uid=${UID}
+        - gid=${GID}
+        - uname=${UNAME}
+    expose:
+      - "80"
+      - "443"
+    env_file:
+      - ./.env
+    volumes:
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/backend:/app
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/log:/var/log/nginx:rw
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/oam/nginx/conf.d/app.nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - application_backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.application_webserver.entrypoints=http"
+      - "traefik.http.routers.application_webserver.rule=Host(`application.localhost`, `api.application.localhost`)"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+      - internal
+
+  application_client:
+    container_name: application_client
+    build:
+      context:    ./docker/node
+      dockerfile: Dockerfile
+      args:
+        - current_service=${APPLICATION_SERVICE_NAME}
+        - env=${ENV}
+        - node_version=${NODE_VERSION}
+        - uid=${UID}
+        - gid=${GID}
+        - uname=${UNAME}
+    volumes:
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/client:/app
+    depends_on:
+      - application_webserver
+    env_file:
+      - ./.env
+    networks:
+      - internal
+
+  application_worker:
+    container_name: application_worker
+    build:
+      context:    ./docker/php
+      dockerfile: Dockerfile
+      target:     php-worker
+      args:
+        - php_version=${PHP_VERSION}
+        - project_name=${PROJECT_NAME}
+        - current_service=${APPLICATION_SERVICE_NAME}
+        - app_env=${APP_ENV}
+        - env=${ENV}
+        - xdebug_enable=${XDEBUG_ENABLE}
+        - uid=${UID}
+        - gid=${GID}
+        - uname=${UNAME}
+        - db_user=${MYSQL_USER}
+        - db_password=${MYSQL_PASSWORD}
+        - db_name=${MYSQL_DATABASE}
+        - db_host=${MYSQL_HOST}
+        - db_dsn=${DATABASE_URL}
+        - redis_chema=${REDIS_SCHEMA}
+        - redis_host=${REDIS_HOST}
+        - redis_port=${REDIS_PORT}
+        - redis_passwrod=${REDIS_PASSWORD}
+        - redis_database=${REDIS_DATABASE}
+        - redis_dsn=${REDIS_DSN}
+        - rabbitmq_host=${RABBITMQ_HOST}
+        - rabbitmq_port=${RABBITMQ_PORT}
+        - rabbitmq_password=${RABBITMQ_PASSWORD}
+        - rabbitmq_user=${RABBITMQ_USER}
+        - mailer_dsn=${MAILER_DSN}
+    env_file:
+      - ./.env
+    volumes:
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/backend:/app:rw
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/log:/app/var/log:rw
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/log:/var/log/supervisor:rw
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/oam/php/conf.d/app.ini:/usr/local/etc/php/conf.d/app.ini
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/oam/supervisor/supervisor.conf:/etc/supervisor/conf.d/supervisor.conf
+    restart:        always
+    depends_on:
+      - database
+      - redis
+      - rabbitmq
+    networks:
+      - internal
+
+  ################################################################################
+  # CMS stack
+  ################################################################################
+  cms_backend:
+    container_name: cms_backend
+    build:
+      context: ./docker/php
+      target:  base-php
+      args:
+        - php_version=${PHP_VERSION}
+        - project_name=${PROJECT_NAME}
+        - current_service=${CMS_SERVICE_NAME}
+        - app_env=${APP_ENV}
+        - env=${ENV}
+        - xdebug_enable=${XDEBUG_ENABLE}
+        - uid=${UID}
+        - gid=${GID}
+        - uname=${UNAME}
+        - db_user=${MYSQL_USER}
+        - db_password=${MYSQL_PASSWORD}
+        - db_name=${MYSQL_DATABASE}
+        - db_host=${MYSQL_HOST}
+        - db_dsn=${DATABASE_URL}
+        - redis_chema=${REDIS_SCHEMA}
+        - redis_host=${REDIS_HOST}
+        - redis_port=${REDIS_PORT}
+        - redis_passwrod=${REDIS_PASSWORD}
+        - redis_database=${REDIS_DATABASE}
+        - redis_dsn=${REDIS_DSN}
+        - rabbitmq_host=${RABBITMQ_HOST}
+        - rabbitmq_port=${RABBITMQ_PORT}
+        - rabbitmq_password=${RABBITMQ_PASSWORD}
+        - rabbitmq_user=${RABBITMQ_USER}
+    env_file:
+      - ./.env
+    volumes:
+      - ./ecosystem/${CMS_SERVICE_NAME}/backend:/app:rw
+      - ./ecosystem/${CMS_SERVICE_NAME}/log:/app/var/log:rw
+      - ./ecosystem/${CMS_SERVICE_NAME}/oam/php/conf.d/app.ini:/usr/local/etc/php/conf.d/app.ini
+      - ./ecosystem/${CMS_SERVICE_NAME}/oam/php/pool.d/app.fpm.conf:/usr/local/etc/php-fpm.d/zz-pm.conf
+    restart:        always
+    depends_on:
+      - database
+      - redis
+      - rabbitmq
+    networks:
+      - internal
+
+  cms_webserver:
+    container_name: cms_webserver
+    build:
+      context:    ./docker/nginx
+      dockerfile: Dockerfile
+      args:
+        - current_service=${CMS_SERVICE_NAME}
+        - env=${ENV}
+        - php_version=${PHP_VERSION}
+        - xdebug_enable=${XDEBUG_ENABLE}
+        - uid=${UID}
+        - gid=${GID}
+        - uname=${UNAME}
+    expose:
+      - "80"
+      - "443"
+    env_file:
+      - ./.env
+    volumes:
+      - ./ecosystem/${CMS_SERVICE_NAME}/backend:/app
+      - ./ecosystem/${CMS_SERVICE_NAME}/log:/var/log/nginx:rw
+      - ./ecosystem/${CMS_SERVICE_NAME}/oam/nginx/conf.d/app.nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - cms_backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cms_webserver.entrypoints=http"
+      - "traefik.http.routers.cms_webserver.rule=Host(`cms.localhost`, `api.cms.localhost`)"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+      - internal
+
+  cms_client:
+    container_name: cms_client
+    build:
+      context:    ./docker/node
+      dockerfile: Dockerfile
+      args:
+        - current_service=${CMS_SERVICE_NAME}
+        - env=${ENV}
+        - node_version=${NODE_VERSION}
+        - uid=${UID}
+        - gid=${GID}
+        - uname=${UNAME}
+    volumes:
+      - ./ecosystem/${CMS_SERVICE_NAME}/client:/app
+    depends_on:
+      - cms_webserver
+    env_file:
+      - ./.env
+    networks:
+      - internal
+
+  cms_worker:
+    container_name: cms_worker
+    build:
+      context:    ./docker/php
+      dockerfile: Dockerfile
+      target:     php-worker
+      args:
+        - php_version=${PHP_VERSION}
+        - project_name=${PROJECT_NAME}
+        - current_service=${CMS_SERVICE_NAME}
+        - app_env=${APP_ENV}
+        - env=${ENV}
+        - xdebug_enable=${XDEBUG_ENABLE}
+        - uid=${UID}
+        - gid=${GID}
+        - uname=${UNAME}
+        - db_user=${MYSQL_USER}
+        - db_password=${MYSQL_PASSWORD}
+        - db_name=${MYSQL_DATABASE}
+        - db_host=${MYSQL_HOST}
+        - db_dsn=${DATABASE_URL}
+        - redis_chema=${REDIS_SCHEMA}
+        - redis_host=${REDIS_HOST}
+        - redis_port=${REDIS_PORT}
+        - redis_passwrod=${REDIS_PASSWORD}
+        - redis_database=${REDIS_DATABASE}
+        - redis_dsn=${REDIS_DSN}
+        - rabbitmq_host=${RABBITMQ_HOST}
+        - rabbitmq_port=${RABBITMQ_PORT}
+        - rabbitmq_password=${RABBITMQ_PASSWORD}
+        - rabbitmq_user=${RABBITMQ_USER}
+    env_file:
+      - ./.env
+    volumes:
+      - ./ecosystem/${CMS_SERVICE_NAME}/backend:/app:rw
+      - ./ecosystem/${CMS_SERVICE_NAME}/log:/app/var/log:rw
+      - ./ecosystem/${APPLICATION_SERVICE_NAME}/log:/var/log/supervisor
+      - ./ecosystem/${CMS_SERVICE_NAME}/oam/php/conf.d/app.ini:/usr/local/etc/php/conf.d/app.ini
+      - ./ecosystem/${CMS_SERVICE_NAME}/oam/supervisor/supervisor.conf:/etc/supervisor/conf.d/supervisor.conf
+    restart:        always
+    depends_on:
+      - database
+      - redis
+      - rabbitmq
+    networks:
+      - internal
+
+  ################################################################################
+  # Background services
+  ################################################################################
+  database:
+    container_name: database
+    build:
+      context:    ./docker/database
+      dockerfile: Dockerfile
+      args:
+        - mysql_version=${MYSQL_VERSION}
+    env_file:
+      - ./.env
+    volumes:
+      - database-data:/var/lib/mysql:rw
+    networks:
+      - internal
+
+  redis:
+    container_name: redis
+    image:          bitnami/redis:latest
+    volumes:
+      - redis-data:/bitnami/redis/data:rw
+    env_file:
+      - ./.env
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    networks:
+      - internal
+
+  rabbitmq:
+    container_name: rabbitmq
+    image:          "rabbitmq:3-management"
+    hostname:       rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    env_file:
+      - ./.env
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq:cached
+    networks:
+      - internal
+
